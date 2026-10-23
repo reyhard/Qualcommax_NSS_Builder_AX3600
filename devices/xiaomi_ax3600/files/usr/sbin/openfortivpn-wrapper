@@ -1,0 +1,46 @@
+#!/bin/sh
+# OpenFortiVPN wrapper for netifd, with optional pinentry file-token 2FA.
+[ "$#" -ge 2 ] || exit 2
+pwfile=$1; shift
+config=$1; shift
+[ -n "$pwfile" ] && [ -r "$pwfile" ] || { logger -t openfortivpn "$config: password file unavailable"; exit 1; }
+umask 077
+killed=0
+child=
+stop_child() {
+  killed=1
+  [ -n "$child" ] && kill -TERM "$child" 2>/dev/null || :
+}
+trap stop_child INT TERM
+use_2fa=0
+for arg do
+  case "$arg" in --pinentry=*) use_2fa=1 ;; esac
+done
+if [ "$use_2fa" = 1 ]; then
+  export OPENFORTIVPN_PASSWORD_FILE="$pwfile"
+  export OPENFORTIVPN_TOKEN_FILE="/tmp/openfortivpn-token-${config}.txt"
+  export OPENFORTIVPN_TOKEN_TIMEOUT="120"
+  export OPENFORTIVPN_INTERFACE="$config"
+  rm -f "$OPENFORTIVPN_TOKEN_FILE" "${OPENFORTIVPN_TOKEN_FILE}.waiting"
+fi
+started=$(date +%s)
+if [ "$use_2fa" = 1 ]; then
+  /usr/sbin/openfortivpn "$@" &
+else
+  /usr/sbin/openfortivpn "$@" < "$pwfile" &
+fi
+child=$!
+wait "$child"
+rc=$?
+if [ "$use_2fa" = 1 ]; then
+  rm -f "$OPENFORTIVPN_TOKEN_FILE" "${OPENFORTIVPN_TOKEN_FILE}.waiting"
+fi
+[ "$killed" = 1 ] && exit 0
+if [ "$rc" -ne 0 ]; then
+  elapsed=$(($(date +%s) - started))
+  . /lib/netifd/netifd-proto.sh
+  proto_notify_error "$config" "OpenFortiVPN exited with code $rc after ${elapsed}s"
+  proto_block_restart "$config"
+  exit "$rc"
+fi
+exit 0
