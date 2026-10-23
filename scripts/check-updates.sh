@@ -43,7 +43,14 @@ command -v git >/dev/null || log::die "git is required"
 # Resolve a ref to a commit SHA via the remote.
 resolve_sha() {
   local repo="$1" ref="$2" sha
-  sha="$(git ls-remote "https://github.com/$repo" "$ref" | awk 'NR==1{print $1}')"
+  if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+    # git ls-remote matches refs, not bare SHAs. Verify pinned commits using
+    # the GitHub API (GH_TOKEN is already available in this workflow).
+    sha="$(gh api "repos/$repo/commits/$ref" --jq .sha)" ||
+      log::die "could not resolve pinned commit $repo@$ref"
+  else
+    sha="$(git ls-remote "https://github.com/$repo" "$ref" | awk 'NR==1{print $1}')"
+  fi
   [[ -n "$sha" ]] || log::die "could not resolve $repo@$ref"
   printf '%s\n' "$sha"
 }

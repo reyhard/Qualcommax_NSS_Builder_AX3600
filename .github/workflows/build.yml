@@ -28,7 +28,8 @@ permissions:
 
 env:
   UPSTREAM_REPO: JuliusBairaktaris/openwrt-ppe-nss
-  UPSTREAM_REF: ppe-nss
+  # Pinned to Julius's 2026-10-21 working PPE-NSS revision until DSA tagger regression is fixed.
+  UPSTREAM_REF: 2a1df1304caf159aae7181bf0dfdfc0bd7d6f2e2
   NSS_REPO: JuliusBairaktaris/nss-packages
   NSS_REF: ppe-nss
   # The picker and the feeds move here once the PAGES_DEPLOY_KEY secret holds
