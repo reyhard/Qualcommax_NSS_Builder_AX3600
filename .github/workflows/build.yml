@@ -65,6 +65,8 @@ jobs:
   stats:
     name: Download stats
     needs: check
+    # The stats branch does not exist yet in this fork.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
