@@ -4,9 +4,6 @@ Subject: [PATCH] hostapd: correct unexpected link measurement reports for ubus r
 Backport of https://github.com/openwrt/openwrt/pull/26045 to the pinned
 JuliusBairaktaris/openwrt-ppe-nss revision 2a1df1304caf159aae7181bf0dfdfc0bd7d6f2e2.
 
-Preserve ubus link measurement reports for usteer without calling the
-upstream pending-request handler for unrelated ubus-solicited replies.
-
 ---
 diff --git a/package/network/services/hostapd/Makefile b/package/network/services/hostapd/Makefile
 --- a/package/network/services/hostapd/Makefile
@@ -84,6 +81,8 @@ diff --git a/package/network/services/hostapd/src/src/ap/ubus.c b/package/networ
  	ubus_notify(ctx, obj, "link-measurement-report", b.head, -1);
 +	return true;
  }
+ 
+ 
 
 diff --git a/package/network/services/hostapd/src/src/ap/ubus.h b/package/network/services/hostapd/src/src/ap/ubus.h
 --- a/package/network/services/hostapd/src/src/ap/ubus.h
