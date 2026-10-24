@@ -95,7 +95,10 @@ done
 for p in "$BUILDER_REPO/patches/tree/$VARIANT"/*.patch; do
   if patch -p1 --dry-run --forward <"$p" >/dev/null 2>&1; then
     log::info "Patching the tree with $(basename "$p")"
-    patch -p1 --forward <"$p"
+    # A tree patch may itself edit an OpenWrt package .patch file.
+    # GNU patch can leave a *.orig backup when a hunk has an offset/fuzz;
+    # OpenWrt's patch engine subsequently treats that backup as a second patch.
+    patch -p1 --forward --no-backup-if-mismatch <"$p"
   elif patch -p1 --dry-run --reverse <"$p" >/dev/null 2>&1; then
     log::info "Skipping $(basename "$p") (already applied)"
   else
