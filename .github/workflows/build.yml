@@ -15,6 +15,7 @@ on:
       - '!devices/common-ppe/**'
       - '!devices/ppe-*/**'
       - 'scripts/**'
+      - 'patches/**'
       - '.github/workflows/build.yml'
   schedule:
     - cron: "0 */2 * * *"
