@@ -107,6 +107,16 @@ for p in "$BUILDER_REPO/patches/tree/$VARIANT"/*.patch; do
 done
 shopt -u nullglob
 
+# Prevent OpenWrt treating patch backups as additional hostapd patches.
+# A local backport modifies 600-ubus_support.patch; GNU patch can create
+# 600-ubus_support.patch.orig if a hunk offset or fuzz is involved.
+# OpenWrt's patch discovery picks up that backup and applies it twice.
+# Keep the real .patch file; only remove incidental .patch.orig backups.
+if [[ -d package/network/services/hostapd/patches ]]; then
+  find package/network/services/hostapd/patches -maxdepth 1 -type f \
+    -name '*.patch.orig' -print -delete
+fi
+
 # 2. Assemble .config from the common + device configs, then resolve.
 log::info "Assembling .config from ${CONFIGS[*]#"$BUILDER_REPO"/}"
 cat "${CONFIGS[@]}" >.config
