@@ -1,0 +1,95 @@
+From: AX3600 PPE-NSS build
+Subject: [PATCH] luci-proto-openfortivpn: ignore missing certificate placeholders
+
+The rpcd getter uses literal "File not found" / "File empty" strings for
+optional PEM files. LuCI treats these as certificate contents, flags PEM
+validation errors and blocks saving unrelated VPN interface options.
+
+Render unavailable files as empty optional fields and skip empty writes;
+existing PEM files remain untouched unless explicitly replaced.
+
+--- a/protocols/luci-proto-openfortivpn/htdocs/luci-static/resources/protocol/openfortivpn.js
++++ b/protocols/luci-proto-openfortivpn/htdocs/luci-static/resources/protocol/openfortivpn.js
+@@ -37,14 +37,22 @@
+ 	return s;
+ }
+ 
++// Absent certificate files are optional. The rpcd backend returns these
++// status messages as strings; never display or validate them as PEM data.
++function loadedCert(certs, key) {
++	const value = certs && certs[key];
++	return (typeof value == 'string' &&
++	        value != 'File not found' && value != 'File empty') ? value : '';
++}
++
+ function validateCert(priv, section_id, value) {
++	if (typeof value != 'string' || value.trim() == '')
++		return true;
++
+ 	const lines = value.trim().split(/[\r\n]/);
+ 	let start = false;
+ 	let i;
+ 
+-	if (value === null || value === '')
+-		return true;
+-
+ 	for (i = 0; i < lines.length; i++) {
+ 		if (lines[i].match(/^-{5}BEGIN ((|RSA |DSA )PRIVATE KEY|(|TRUSTED |X509 )CERTIFICATE)-{5}$/))
+ 			start = true;
+@@ -104,15 +112,20 @@
+ 		o.password = true;
+ 
+ 		o = s.taboption('general', form.TextValue, 'user_cert', _('User certificate (PEM encoded)'));
++		o.optional = true;
+ 		o.rows = 10;
+ 		o.monospace = true;
+ 		o.validate = L.bind(validateCert, o, false);
+ 		o.load = function(section_id) {
+ 			certLoadPromise = certLoadPromise || callGetCertificateFiles(section_id);
+-			return certLoadPromise.then(function(certs) { return certs.user_cert });
++			return certLoadPromise.then(function(certs) { return loadedCert(certs, 'user_cert'); });
+ 		};
+ 		o.write = function(section_id, value) {
+-			return callSetCertificateFiles(section_id, sanitizeCert(value), null, null);
++			const cert = sanitizeCert(value);
++			// Blank fields mean keep any existing file unchanged.
++			if (cert === null)
++				return;
++			return callSetCertificateFiles(section_id, cert, null, null);
+ 		};
+ 
+ 		o = s.taboption('general', form.TextValue, 'user_key', _('User key (PEM encoded)'));
+@@ -122,10 +135,14 @@
+ 		o.validate = L.bind(validateCert, o, true);
+ 		o.load = function(section_id) {
+ 			certLoadPromise = certLoadPromise || callGetCertificateFiles(section_id);
+-			return certLoadPromise.then(function(certs) { return certs.user_key });
++			return certLoadPromise.then(function(certs) { return loadedCert(certs, 'user_key'); });
+ 		};
+ 		o.write = function(section_id, value) {
+-			return callSetCertificateFiles(section_id, null, sanitizeCert(value), null);
++			const cert = sanitizeCert(value);
++			// Blank fields mean keep any existing file unchanged.
++			if (cert === null)
++				return;
++			return callSetCertificateFiles(section_id, null, cert, null);
+ 		};
+ 
+ 		o = s.taboption('general', form.TextValue, 'ca_file', _('CA certificate (PEM encoded. Use instead of system-wide store to verify the gateway certificate.)'));
+@@ -135,10 +152,14 @@
+ 		o.validate = L.bind(validateCert, o, false);
+ 		o.load = function(section_id) {
+ 			certLoadPromise = certLoadPromise || callGetCertificateFiles(section_id);
+-			return certLoadPromise.then(function(certs) { return certs.ca_file });
++			return certLoadPromise.then(function(certs) { return loadedCert(certs, 'ca_file'); });
+ 		};
+ 		o.write = function(section_id, value) {
+-			return callSetCertificateFiles(section_id, null, null, sanitizeCert(value));
++			const cert = sanitizeCert(value);
++			// Blank fields mean keep any existing file unchanged.
++			if (cert === null)
++				return;
++			return callSetCertificateFiles(section_id, null, null, cert);
+ 		};
+ 
+ 		o = s.taboption('advanced', widgets.NetworkSelect, 'tunlink', _('Bind interface'), _('Bind the tunnel to this interface (optional).'));
