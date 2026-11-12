@@ -1,0 +1,84 @@
+diff --git a/package/kernel/mac80211/patches/ath11k/954-wifi-ath11k-dont-create-duplicate-peer-same-pdev.patch b/package/kernel/mac80211/patches/ath11k/954-wifi-ath11k-dont-create-duplicate-peer-same-pdev.patch
+new file mode 100644
+--- /dev/null
++++ b/package/kernel/mac80211/patches/ath11k/954-wifi-ath11k-dont-create-duplicate-peer-same-pdev.patch
+@@ -0,0 +1,79 @@
++From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
++From: fedo <fernan.tapia@fernandotapia.eu>
++Date: Thu, 29 Oct 2026 12:00:00 +0100
++Subject: [PATCH] wifi: ath11k: don't create a duplicate peer on the same pdev
++
++ath11k_peer_create() accepts an address that is already a peer on
++another vdev, assuming the station is moving to another band. That holds
++when the old vdev is on another pdev. When both vdevs are on the same
++pdev, for example two AP interfaces on one 2.4 GHz radio, a station that
++moves between the two BSSes is authenticated on the new one while hostapd
++still has it on the old one. The WMI_PEER_CREATE for the second vdev then
++makes the IPQ8074 firmware (WLAN.HK.2.9.0.1-02146) assert:
++
++  wal_peer_control.c:2904 Assertion is_graceful_to_handle failed
++
++followed by "failed to find peer ... after creation" on the host, and on
++AHB the whole SoC reboots. Tuya devices in pairing mode, which try both
++BSSes of a radio within a second, cause a reboot loop.
++
++Refuse the peer with -EBUSY while the address is still a peer on another
++vdev of the same pdev, without sending the command to the firmware. The
++station add fails as it already does after the assert, hostapd rejects
++that authentication, and the client succeeds on a retry once its old
++station is removed.
++
++Signed-off-by: fedo <fernan.tapia@fernandotapia.eu>
++---
++--- a/drivers/net/wireless/ath/ath11k/peer.c
+++++ b/drivers/net/wireless/ath/ath11k/peer.c
++@@ -367,11 +367,25 @@
++ 	return ath11k_wait_for_peer_common(ar->ab, vdev_id, addr, true);
++ }
++ 
+++static bool ath11k_peer_vdev_on_pdev(struct ath11k *ar, u32 vdev_id)
+++{
+++	struct ath11k_vif *arvif;
+++
+++	lockdep_assert_held(&ar->conf_mutex);
+++
+++	list_for_each_entry(arvif, &ar->arvifs, list)
+++		if (arvif->vdev_id == vdev_id)
+++			return true;
+++
+++	return false;
+++}
+++
++ int ath11k_peer_create(struct ath11k *ar, struct ath11k_vif *arvif,
++ 		       struct ieee80211_sta *sta, struct peer_create_params *param)
++ {
++ 	struct ath11k_peer *peer;
++ 	struct ath11k_sta *arsta;
+++	int old_vdev_id;
++ 	int ret, fbret;
++ 
++ 	lockdep_assert_held(&ar->conf_mutex);
++@@ -392,6 +406,23 @@
++ 			return -EINVAL;
++ 		}
++ 
+++		/* The firmware asserts (wal_peer_control.c
+++		 * "is_graceful_to_handle") when a peer is created for an
+++		 * address that is still a peer on another vdev of the same
+++		 * pdev. This happens when a station moves between two BSSes
+++		 * of one radio before its old station is removed. Refuse the
+++		 * new peer until the old one is gone.
+++		 */
+++		if (ath11k_peer_vdev_on_pdev(ar, peer->vdev_id)) {
+++			old_vdev_id = peer->vdev_id;
+++			spin_unlock_bh(&ar->ab->base_lock);
+++			mutex_unlock(&ar->ab->tbl_mtx_lock);
+++			ath11k_warn(ar->ab,
+++				    "peer %pM still exists on vdev %d, not creating it on vdev %u\n",
+++				    param->peer_addr, old_vdev_id, param->vdev_id);
+++			return -EBUSY;
+++		}
+++
++ 		/* Assume sta is transitioning to another band.
++ 		 * Remove here the peer from rhash.
++ 		 */
